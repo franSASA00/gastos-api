@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: gastos-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ONEDRIVE_URL
+        sync: false   # Lo cargás vos en el dashboard de Render
