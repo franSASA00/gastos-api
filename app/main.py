@@ -4,11 +4,12 @@ import pandas as pd
 import requests
 import io
 import time
+import re
 
 app = FastAPI(
     title="Gastos Mensuales API",
     description="API para leer el Excel de gastos desde Google Sheets y exponerlo a Power BI",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 app.add_middleware(
@@ -17,8 +18,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRGCLCZi3xe1djvQbl2L_ztbjIOq-iT-PYV0VAYyuzwpZbLTTOOuwWuYRgZpuFYxWxhSoQTF1Uqg52I/pub&output=csv&gid="
 
 SHEETS = {
     "Panel Principal":   "2058314116",
@@ -29,14 +28,41 @@ SHEETS = {
     "Referencia":        "1655435187",
 }
 
+SHEET_ID = "2PACX-1vRGCLCZi3xe1djvQbl2L_ztbjIOq-iT-PYV0VAYyuzwpZbLTTOOuwWuYRgZpuFYxWxhSoQTF1Uqg52I"
+
 _cache = {"data": None, "ts": 0}
 
+def parse_ar_number(s) -> float | None:
+    """Parsea números en formato argentino: 1.234.567,89 o 1234567,89"""
+    if s is None:
+        return None
+    s = str(s).strip()
+    if s in ('', '-', 'nan', 'NaN', '#N/A', '#VALUE!', '#REF!'):
+        return None
+    # Quitar símbolo $, espacios y paréntesis (formato negativo)
+    negative = s.startswith('(') or s.startswith('-')
+    s = re.sub(r'[\$\s\(\)]', '', s).replace('-', '')
+    # Formato argentino: puntos = miles, coma = decimal
+    if ',' in s:
+        s = s.replace('.', '').replace(',', '.')
+    else:
+        # Sin coma: solo puntos (pueden ser miles)
+        parts = s.split('.')
+        if len(parts) > 1 and len(parts[-1]) == 3:
+            s = s.replace('.', '')  # son separadores de miles
+        # Si no, es decimal normal
+    try:
+        val = float(s)
+        return -val if negative else val
+    except:
+        return None
+
 def fetch_sheet(gid: str) -> pd.DataFrame:
-    url = f"https://docs.google.com/spreadsheets/d/e/2PACX-1vRGCLCZi3xe1djvQbl2L_ztbjIOq-iT-PYV0VAYyuzwpZbLTTOOuwWuYRgZpuFYxWxhSoQTF1Uqg52I/pub?output=csv&gid={gid}"
+    url = f"https://docs.google.com/spreadsheets/d/e/{SHEET_ID}/pub?output=csv&gid={gid}"
     resp = requests.get(url, timeout=30)
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"No se pudo leer Google Sheets (HTTP {resp.status_code})")
-    df = pd.read_csv(io.StringIO(resp.text), header=1)
+    df = pd.read_csv(io.StringIO(resp.text), header=1, dtype=str)
     return df
 
 def load_sheets() -> dict[str, pd.DataFrame]:
@@ -51,12 +77,11 @@ def load_sheets() -> dict[str, pd.DataFrame]:
 def sheet_to_records(df: pd.DataFrame) -> list[dict]:
     df = df.dropna(how="all").reset_index(drop=True)
     df.columns = [str(c).strip() for c in df.columns]
-    df = df.where(pd.notna(df), other=None)
     return df.to_dict(orient="records")
 
 @app.get("/")
 def root():
-    return {"api": "Gastos Mensuales API v2 — Google Sheets",
+    return {"api": "Gastos Mensuales API v2.1 — Google Sheets",
             "endpoints": ["/panel","/tarjetas","/personales","/hogar","/deudas","/referencia","/resumen"]}
 
 @app.get("/panel")
@@ -104,12 +129,12 @@ def get_resumen():
         if label not in ROWS_OF_INTEREST:
             continue
         for mes in month_cols:
-            v = row[mes]
-            try:
-                v = float(str(v).replace('.', '').replace(',', '.')) if v is not None else None
-            except:
-                v = None
-            records.append({"categoria": label, "mes": str(mes).strip(), "valor": v})
+            v = parse_ar_number(row[mes])
+            records.append({
+                "categoria": label,
+                "mes": str(mes).strip(),
+                "valor": v
+            })
 
     return {"data": records}
 
