@@ -40,7 +40,7 @@ def sheet_to_records(df: pd.DataFrame) -> list[dict]:
 
 @app.get("/")
 def root():
-    return {"api": "Gastos Mensuales API", "endpoints": ["/panel","/tarjetas","/personales","/hogar","/deudas","/referencia","/resumen"]}
+    return {"api": "Gastos Mensuales API", "endpoints": ["/panel","/tarjetas","/personales","/hogar","/deudas","/referencia","/resumen","/objetivos"]}
 
 @app.get("/panel")
 def get_panel():
@@ -78,22 +78,25 @@ def get_referencia():
     if sheet is None: raise HTTPException(status_code=404, detail="Pestaña no encontrada")
     return {"sheet": "Referencia", "data": sheet_to_records(sheet)}
 
+@app.get("/objetivos")
+def get_objetivos():
+    sheet = load_excel().get("Objetivos")
+    if sheet is None: raise HTTPException(status_code=404, detail="Pestaña 'Objetivos' no encontrada")
+    return {"sheet": "Objetivos", "data": sheet_to_records(sheet)}
+
 @app.get("/resumen")
 def get_resumen():
     panel = load_excel().get("Panel Principal")
     if panel is None: raise HTTPException(status_code=404, detail="Pestaña no encontrada")
-
     ROWS_OF_INTEREST = [
         "Tarjetas & Bancos", "Gastos Personales", "Hogar", "Deudas & Varios",
         "TOTAL GASTOS", "Ingreso Franco", "Ingreso Abi", "Pago de negocio",
         "Ingreso por rendimientos", "Nos deben", "TOTAL INGRESOS",
         "¿LLEGAMOS A PAGAR?", "% Franco", "% Abi",
     ]
-
     panel = panel.dropna(how="all").reset_index(drop=True)
     label_col = panel.columns[0]
     month_cols = panel.columns[1:]
-
     records = []
     for _, row in panel.iterrows():
         label = str(row[label_col]).strip()
@@ -106,7 +109,6 @@ def get_resumen():
                 "mes": str(mes).strip(),
                 "valor": None if pd.isna(v) else v
             })
-
     return {"data": records}
 
 @app.get("/health")
