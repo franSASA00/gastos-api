@@ -78,6 +78,23 @@ def get_referencia():
     if sheet is None: raise HTTPException(status_code=404, detail="Pestaña no encontrada")
     return {"sheet": "Referencia", "data": sheet_to_records(sheet)}
 
+def to_number(x, default=0):
+    """Convierte valores de Excel (que pueden venir como texto, None, fórmula rota, etc.)
+    a un número seguro. Evita TypeError al operar celdas que openpyxl lee como str."""
+    if x is None:
+        return default
+    if isinstance(x, (int, float)):
+        return x
+    if isinstance(x, str):
+        x = x.strip().replace("$", "").replace(".", "").replace(",", ".")
+        if x == "" or x.upper() in ("N/A", "-", "NA"):
+            return default
+        try:
+            return float(x)
+        except ValueError:
+            return default
+    return default
+
 @app.get("/objetivos")
 def get_objetivos():
     sheets = load_excel()
@@ -91,14 +108,14 @@ def get_objetivos():
     ws = wb["Objetivos"]
 
     # Extraer supuesto ahorro mensual (B3)
-    ahorro_mensual = ws["B3"].value or 200000
+    ahorro_mensual = to_number(ws["B3"].value, default=200000)
 
     # Extraer objetivos (filas 6-8, cols A-I)
     objetivos = []
     for row in ws.iter_rows(min_row=6, max_row=8, min_col=1, max_col=9, values_only=True):
         if row[0] and str(row[0]).strip():
-            meta = row[3] or 0
-            ahorrado = row[4] or 0
+            meta = to_number(row[3])
+            ahorrado = to_number(row[4])
             faltante = max(meta - ahorrado, 0)
             pct = round(ahorrado / meta * 100, 1) if meta > 0 else 0
             meses = -(-faltante // ahorro_mensual) if ahorro_mensual > 0 and faltante > 0 else 0
